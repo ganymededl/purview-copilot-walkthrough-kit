@@ -1,0 +1,49 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  powershell:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse, ASCII and -Help checks (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $failed = $false
+          foreach ($f in Get-ChildItem -Filter *.ps1) {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors) { Write-Host "PARSE FAIL $($f.Name)"; $errors | ForEach-Object { Write-Host "  $($_.Extent.StartLineNumber): $($_.Message)" }; $failed = $true }
+            $text = [IO.File]::ReadAllText($f.FullName)
+            if ($text -match '[^\x00-\x7F]') { Write-Host "NON-ASCII $($f.Name)"; $failed = $true }
+          }
+          foreach ($s in 'Deploy-VideoWalkthrough.ps1','Publish-WalkthroughHome.ps1','Remove-VideoWalkthrough.ps1','Update-VideoWalkthrough.ps1') {
+            $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\$s" -Help 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0 -or $out -notmatch '\S') { Write-Host "HELP FAIL $s`n$out"; $failed = $true } else { Write-Host "HELP OK $s" }
+          }
+          if ($failed) { exit 1 }
+
+      - name: PSScriptAnalyzer (errors only)
+        shell: pwsh
+        run: |
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { Install-Module PSScriptAnalyzer -Scope CurrentUser -Force }
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Severity Error
+          $results | Format-Table -AutoSize | Out-String | Write-Host
+          if ($results) { exit 1 }
+
+      - name: Secret and tenant-data scan
+        shell: pwsh
+        run: |
+          $patterns = 'client_secret','-----BEGIN','ghp_[A-Za-z0-9]{20,}','eyJ[A-Za-z0-9_-]{20,}\.','tempauth=','\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'
+          $allowed = '11111111-2222-3333-4444-555555555555','490d7c76-1824-45b2-9de3-676421c997fa'
+          $hits = Get-ChildItem -Recurse -File -Exclude *.yml | Select-String -Pattern $patterns | Where-Object { $line = $_.Line; -not ($allowed | Where-Object { $line -match $_ }) }
+          $hits | ForEach-Object { Write-Host "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }
+          if ($hits) { exit 1 }

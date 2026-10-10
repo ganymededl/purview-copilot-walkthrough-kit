@@ -1,0 +1,23 @@
+# Content packages and media are distributed separately
+Content.zip
+*.zip
+*.mp4
+
+# Work-folder output (may contain tenant URLs and account names)
+deployment-state*.json
+deployment-result.json
+remote-deployment-manifest.json
+pending-update.json
+*.csv
+*.jsonl
+hosted-*.html
+walkthrough-embedded.html
+home-backup-*.json
+pdf/
+edge-profile-*/
+update-history/
+
+# Editors / OS
+.vscode/
+.DS_Store
+Thumbs.db
